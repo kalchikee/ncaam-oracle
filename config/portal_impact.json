@@ -1,0 +1,20 @@
+[
+  {
+    "teamAbbr": "KU",
+    "teamName": "Kansas",
+    "portalWAR": 3.2,
+    "notes": "Net positive: added guards via portal"
+  },
+  {
+    "teamAbbr": "UK",
+    "teamName": "Kentucky",
+    "portalWAR": 4.1,
+    "notes": "Major rebuild via portal under new staff"
+  },
+  {
+    "teamAbbr": "ARIZ",
+    "teamName": "Arizona",
+    "portalWAR": 3.5,
+    "notes": "Added frontcourt depth"
+  }
+]

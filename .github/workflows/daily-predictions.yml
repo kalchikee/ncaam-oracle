@@ -1,0 +1,78 @@
+name: Daily Predictions
+
+on:
+  schedule:
+    - cron: '0 13 * * *'   # 9 AM ET / 1 PM UTC — every day
+  workflow_dispatch:
+    inputs:
+      date:
+        description: 'Date to run (YYYY-MM-DD). Leave blank for today.'
+        required: false
+        default: ''
+      force_refresh:
+        description: 'Force fresh data (bypass cache)?'
+        required: false
+        default: 'false'
+
+jobs:
+  daily-predictions:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Restore SQLite database
+        uses: actions/cache@v4
+        with:
+          path: data/oracle.sqlite
+          key: ncaam-oracle-db-${{ github.run_id }}
+          restore-keys: |
+            ncaam-oracle-db-
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Score yesterday's games
+        run: |
+          YESTERDAY=$(date -u -d 'yesterday' +%Y-%m-%d 2>/dev/null || date -u -v-1d +%Y-%m-%d)
+          echo "Scoring games for $YESTERDAY"
+          node --loader ts-node/esm src/index.ts --score "$YESTERDAY" || echo "Scoring skipped (no games or DB)"
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          LOG_LEVEL: info
+          CI: 'true'
+
+      - name: Run daily predictions and send Discord embed
+        run: |
+          if [ -n "${{ github.event.inputs.date }}" ]; then
+            TARGET_DATE="${{ github.event.inputs.date }}"
+          else
+            TARGET_DATE=$(date -u +%Y-%m-%d)
+          fi
+          echo "Running predictions for $TARGET_DATE"
+
+          ARGS="--alert daily --date $TARGET_DATE"
+          if [ "${{ github.event.inputs.force_refresh }}" = "true" ]; then
+            ARGS="$ARGS --force-refresh"
+          fi
+
+          node --loader ts-node/esm src/index.ts $ARGS
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          LOG_LEVEL: info
+          CI: 'true'
+
+      - name: Save SQLite database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/oracle.sqlite
+          key: ncaam-oracle-db-${{ github.run_id }}

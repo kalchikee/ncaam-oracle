@@ -1,0 +1,14 @@
+node_modules/
+dist/
+cache/
+logs/
+*.log
+.env
+data/oracle.sqlite
+data/*.sqlite
+__pycache__/
+*.pyc
+*.pyo
+.python-version
+venv/
+.venv/

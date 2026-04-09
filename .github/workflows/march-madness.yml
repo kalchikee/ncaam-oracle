@@ -1,0 +1,94 @@
+name: March Madness
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Mode: bracket (Selection Sunday sim) | daily (tournament day picks) | results (round results)'
+        required: true
+        default: 'bracket'
+      date:
+        description: 'Date for daily picks or results (YYYY-MM-DD)'
+        required: false
+        default: ''
+      round:
+        description: 'Tournament round name for results embed (e.g. "Round of 64")'
+        required: false
+        default: 'Round of 64'
+
+jobs:
+  march-madness:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Restore SQLite database
+        uses: actions/cache@v4
+        with:
+          path: data/oracle.sqlite
+          key: ncaam-oracle-db-${{ github.run_id }}
+          restore-keys: |
+            ncaam-oracle-db-
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Run bracket simulation (Selection Sunday)
+        if: ${{ github.event.inputs.mode == 'bracket' }}
+        run: |
+          echo "Running full 10,000-bracket simulation..."
+          node --loader ts-node/esm src/index.ts --alert bracket
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          LOG_LEVEL: info
+          CI: 'true'
+
+      - name: Run tournament daily predictions
+        if: ${{ github.event.inputs.mode == 'daily' }}
+        run: |
+          TARGET_DATE="${{ github.event.inputs.date }}"
+          if [ -z "$TARGET_DATE" ]; then
+            TARGET_DATE=$(date -u +%Y-%m-%d)
+          fi
+          echo "Tournament predictions for $TARGET_DATE"
+          node --loader ts-node/esm src/index.ts --alert daily --date "$TARGET_DATE"
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          LOG_LEVEL: info
+          CI: 'true'
+
+      - name: Send round results embed
+        if: ${{ github.event.inputs.mode == 'results' }}
+        run: |
+          echo "Round results mode — scoring games and sending embed"
+          TARGET_DATE="${{ github.event.inputs.date }}"
+          if [ -z "$TARGET_DATE" ]; then
+            TARGET_DATE=$(date -u -d 'yesterday' +%Y-%m-%d 2>/dev/null || date -u -v-1d +%Y-%m-%d)
+          fi
+          node --loader ts-node/esm src/index.ts --score "$TARGET_DATE"
+          node --loader ts-node/esm src/index.ts --alert daily --date "$TARGET_DATE"
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          LOG_LEVEL: info
+          CI: 'true'
+
+      - name: Save SQLite database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/oracle.sqlite
+          key: ncaam-oracle-db-${{ github.run_id }}
