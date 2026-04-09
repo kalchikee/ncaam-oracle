@@ -1,6 +1,7 @@
 // NCAAM Oracle v4.1 — Discord Webhook Alert Module
 // Embeds:
 //   Daily Predictions  — orange (#E04E39)
+//   Evening Recap      — green/red/gray based on record
 //   Weekly Recap       — green (#2ECC71) / red (#E74C3C)
 //   March Madness      — gold (#FFD700)
 //   Season Summary     — orange (#E04E39)
@@ -22,6 +23,9 @@ import type { Prediction, TournamentSim } from '../types.js';
 
 const COLORS = {
   daily:           0xE04E39,  // orange
+  recap_good:      0x2ECC71,  // green
+  recap_bad:       0xE74C3C,  // red
+  recap_neutral:   0x95A5A6,  // gray
   weekly_good:     0x2ECC71,  // green
   weekly_bad:      0xE74C3C,  // red
   weekly_neutral:  0x95A5A6,  // gray
@@ -222,6 +226,141 @@ export async function sendDailyPredictions(date: string): Promise<boolean> {
     color: COLORS.daily,
     fields: fields.slice(0, 25),
     footer: { text: footerText },
+    timestamp: new Date().toISOString(),
+  };
+
+  return sendWebhook({ embeds: [embed] });
+}
+
+// ─── EVENING RESULTS RECAP EMBED ─────────────────────────────────────────────
+
+export async function sendEveningRecap(date: string): Promise<boolean> {
+  const predictions = getPredictionsByDate(date);
+  const season = getCurrentSeason();
+  const record  = getSeasonRecord(season);
+
+  if (predictions.length === 0) {
+    return sendWebhook({
+      embeds: [{
+        title: `🌙 NCAAM Oracle — Recap for ${date}`,
+        description: 'No predictions found for this date.',
+        color: COLORS.recap_neutral,
+        timestamp: new Date().toISOString(),
+      }],
+    });
+  }
+
+  // Only show games we actually predicted (high-conviction + strong)
+  const gradable = predictions.filter(p => p.correct !== undefined);
+  const highConv = predictions.filter(p => Math.max(p.calibrated_prob, 1 - p.calibrated_prob) >= 0.70);
+  const correct  = gradable.filter(p => p.correct).length;
+  const total    = gradable.length;
+  const hcCorrect = highConv.filter(p => p.correct).length;
+
+  const accPct  = total > 0 ? (correct / total) * 100 : 0;
+  const color   = total === 0 ? COLORS.recap_neutral
+                : accPct >= 68 ? COLORS.recap_good
+                : accPct >= 55 ? COLORS.recap_neutral
+                : COLORS.recap_bad;
+
+  const accEmoji = accPct >= 68 ? '🟢' : accPct >= 55 ? '🟡' : '🔴';
+
+  // Build brier for the day
+  let brierSum = 0;
+  for (const p of gradable) {
+    brierSum += Math.pow(p.calibrated_prob - (p.correct ? 1 : 0), 2);
+  }
+  const brier = total > 0 ? brierSum / total : 0;
+
+  // Season running totals
+  const seasonPct    = record.total > 0 ? (record.correct / record.total * 100).toFixed(1) + '%' : 'N/A';
+  const hcSeasonPct  = record.highConvTotal > 0 ? (record.highConvCorrect / record.highConvTotal * 100).toFixed(1) + '%' : 'N/A';
+
+  // Game-by-game lines — show all predicted games sorted by confidence
+  const sorted = [...predictions].sort(
+    (a, b) => Math.abs(b.calibrated_prob - 0.5) - Math.abs(a.calibrated_prob - 0.5)
+  );
+
+  const gameLines = sorted.map(pred => {
+    const { team: pickedTeam, prob } = getPickedTeam(pred);
+    const p = Math.max(pred.calibrated_prob, 1 - pred.calibrated_prob);
+    const tier = getConfidenceTier(pred.calibrated_prob);
+    const confIcon = confidenceEmoji(tier);
+
+    if (pred.correct === undefined) {
+      // No result yet
+      return `⬜ ${confIcon} **${pred.away_team} @ ${pred.home_team}** — pick: ${pickedTeam} (${pct(prob)}) *[no result]*`;
+    }
+
+    const resultIcon = pred.correct ? '✅' : '❌';
+    const hcMarker   = p >= 0.70 ? ' ⭐' : '';
+    const edgePart   = pred.edge !== undefined && Math.abs(pred.edge) >= 0.06
+      ? ` | edge: ${pred.edge > 0 ? '+' : ''}${(pred.edge * 100).toFixed(0)}%`
+      : '';
+
+    return `${resultIcon}${hcMarker} ${confIcon} **${pred.away_team} @ ${pred.home_team}** — picked ${pickedTeam} (${pct(prob)})${edgePart}`;
+  });
+
+  // Split game lines into chunks (Discord field limit = 1024 chars)
+  const chunkSize = 8;
+  const fields: DiscordField[] = [];
+
+  // Summary stats first
+  fields.push(
+    {
+      name: `${accEmoji} Tonight: ${correct}/${total} correct (${accPct.toFixed(0)}%)`,
+      value: [
+        `⭐ High-conviction (70%+): **${hcCorrect}/${highConv.length}**`,
+        `📉 Tonight Brier: **${brier.toFixed(3)}**`,
+      ].join('\n'),
+      inline: false,
+    },
+    {
+      name: '🏆 Running Season Record',
+      value: `**${record.correct}-${record.total - record.correct}** (${seasonPct}) | HC: **${record.highConvCorrect}-${record.highConvTotal - record.highConvCorrect}** (${hcSeasonPct})`,
+      inline: false,
+    }
+  );
+
+  // Best & worst of the night
+  const highConvResults = highConv.filter(p => p.correct !== undefined);
+  if (highConvResults.length > 0) {
+    const bestPick = highConvResults.find(p => p.correct);
+    const missedPick = highConvResults.find(p => !p.correct);
+
+    if (bestPick) {
+      const { team, prob } = getPickedTeam(bestPick);
+      fields.push({
+        name: '🔥 Best Pick',
+        value: `**${bestPick.away_team} @ ${bestPick.home_team}**: ${team} (${pct(prob)})`,
+        inline: true,
+      });
+    }
+    if (missedPick) {
+      const { team, prob } = getPickedTeam(missedPick);
+      fields.push({
+        name: '💔 Worst Miss',
+        value: `**${missedPick.away_team} @ ${missedPick.home_team}**: ${team} (${pct(prob)})`,
+        inline: true,
+      });
+    }
+  }
+
+  // Game-by-game in chunks
+  for (let i = 0; i < gameLines.length; i += chunkSize) {
+    const chunk = gameLines.slice(i, i + chunkSize);
+    fields.push({
+      name: i === 0 ? '🎯 Game-by-Game' : '\u200b',
+      value: chunk.join('\n'),
+      inline: false,
+    });
+  }
+
+  const embed: DiscordEmbed = {
+    title: `🌙 NCAAM Oracle — Results for ${date}`,
+    color,
+    fields: fields.slice(0, 25),
+    footer: { text: 'NCAAM Oracle v4.1 | ✅ correct  ❌ miss  ⭐ high-conviction pick' },
     timestamp: new Date().toISOString(),
   };
 

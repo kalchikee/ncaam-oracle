@@ -16,7 +16,7 @@ import { closeDb, initDb } from './db/database.js';
 import { getSeasonPhase, getCurrentSeason, logSeasonStatus } from './season-manager/index.js';
 import type { PipelineOptions } from './types.js';
 
-type AlertMode = 'daily' | 'weekly' | 'bracket' | 'preseason' | 'season-summary' | null;
+type AlertMode = 'daily' | 'recap' | 'weekly' | 'bracket' | 'preseason' | 'season-summary' | null;
 
 function parseArgs(): PipelineOptions & { help: boolean; alertMode: AlertMode; scoreDate?: string } {
   const args = process.argv.slice(2);
@@ -37,7 +37,7 @@ function parseArgs(): PipelineOptions & { help: boolean; alertMode: AlertMode; s
       case '--quiet': case '-q': opts.verbose = false; break;
       case '--alert': case '-a': {
         const mode = args[++i];
-        if (['daily', 'weekly', 'bracket', 'preseason', 'season-summary'].includes(mode)) {
+        if (['daily', 'recap', 'weekly', 'bracket', 'preseason', 'season-summary'].includes(mode)) {
           opts.alertMode = mode as AlertMode;
         } else {
           console.error(`Unknown alert mode: "${mode}"`);
@@ -97,6 +97,13 @@ async function runDailyAlert(date: string, demo = false): Promise<void> {
   await runPipeline({ date, verbose: false, demo });
   const ok = await sendDailyPredictions(date);
   logger.info({ ok, date }, 'Daily alert sent');
+}
+
+async function runRecapAlert(date: string): Promise<void> {
+  const { sendEveningRecap } = await import('./alerts/discord.js');
+  await initDb();
+  const ok = await sendEveningRecap(date);
+  logger.info({ ok, date }, 'Evening recap sent');
 }
 
 async function runWeeklyAlert(date: string): Promise<void> {
@@ -169,7 +176,8 @@ async function main(): Promise<void> {
 
     switch (opts.alertMode) {
       case 'daily':          await runDailyAlert(date, opts.demo);  return;
-      case 'weekly':         await runWeeklyAlert(date);        return;
+      case 'recap':          await runRecapAlert(date);             return;
+      case 'weekly':         await runWeeklyAlert(date);            return;
       case 'bracket':        await runBracketAlert();           return;
       case 'preseason':      await runPreseasonAlert();         return;
       case 'season-summary': await runSeasonSummaryAlert();     return;

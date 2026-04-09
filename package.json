@@ -10,6 +10,7 @@
     "dev": "node --loader ts-node/esm src/index.ts",
     "pipeline": "node --loader ts-node/esm src/pipeline.ts",
     "alerts:daily": "node --loader ts-node/esm src/index.ts --alert daily",
+    "alerts:recap": "node --loader ts-node/esm src/index.ts --alert recap",
     "alerts:weekly": "node --loader ts-node/esm src/index.ts --alert weekly",
     "alerts:bracket": "node --loader ts-node/esm src/index.ts --alert bracket",
     "preseason": "node --loader ts-node/esm src/index.ts --alert preseason",
