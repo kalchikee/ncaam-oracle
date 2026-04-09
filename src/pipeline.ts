@@ -24,7 +24,7 @@ export async function runPipeline(options: PipelineOptions = {}): Promise<Predic
   logger.info({ gameDate, version: MODEL_VERSION }, '=== NCAAM Oracle v4.1 Pipeline Start ===');
 
   // 1. Season gate
-  if (!options.tournamentMode && !isInSeason(gameDate)) {
+  if (!options.tournamentMode && !options.demo && !isInSeason(gameDate)) {
     const phase = getSeasonPhase(gameDate);
     logger.info({ phase, date: gameDate }, 'Outside active season window — exiting');
     return [];
@@ -59,7 +59,9 @@ export async function runPipeline(options: PipelineOptions = {}): Promise<Predic
 
   // 6. Fetch today's schedule
   const games = await fetchSchedule(gameDate);
-  const scheduledGames = games.filter(g => g.status === 'Scheduled' || g.status === 'Live');
+  const scheduledGames = options.demo
+    ? games.slice(0, 20)  // demo: use first 20 games regardless of status
+    : games.filter(g => g.status === 'Scheduled' || g.status === 'Live');
 
   if (scheduledGames.length === 0) {
     logger.warn({ gameDate }, 'No upcoming games found');

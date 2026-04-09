@@ -25,6 +25,7 @@ function parseArgs(): PipelineOptions & { help: boolean; alertMode: AlertMode; s
     verbose: true,
     forceRefresh: false,
     alertMode: null,
+    demo: false,
   };
 
   for (let i = 0; i < args.length; i++) {
@@ -45,6 +46,7 @@ function parseArgs(): PipelineOptions & { help: boolean; alertMode: AlertMode; s
         break;
       }
       case '--score': opts.scoreDate = args[++i]; break;
+      case '--demo': opts.demo = true; break;
       default:
         if (/^\d{4}-\d{2}-\d{2}$/.test(arg)) opts.date = arg;
     }
@@ -89,10 +91,10 @@ ENVIRONMENT (.env):
 
 // ─── Alert runners ────────────────────────────────────────────────────────────
 
-async function runDailyAlert(date: string): Promise<void> {
+async function runDailyAlert(date: string, demo = false): Promise<void> {
   const { sendDailyPredictions } = await import('./alerts/discord.js');
   await initDb();
-  await runPipeline({ date, verbose: false });
+  await runPipeline({ date, verbose: false, demo });
   const ok = await sendDailyPredictions(date);
   logger.info({ ok, date }, 'Daily alert sent');
 }
@@ -166,7 +168,7 @@ async function main(): Promise<void> {
     }
 
     switch (opts.alertMode) {
-      case 'daily':          await runDailyAlert(date);         return;
+      case 'daily':          await runDailyAlert(date, opts.demo);  return;
       case 'weekly':         await runWeeklyAlert(date);        return;
       case 'bracket':        await runBracketAlert();           return;
       case 'preseason':      await runPreseasonAlert();         return;

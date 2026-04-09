@@ -214,6 +214,7 @@ export interface PipelineOptions {
   forceRefresh?: boolean;
   verbose?: boolean;
   tournamentMode?: boolean;
+  demo?: boolean;  // include Final games (for testing outside active season)
 }
 
 // ─── Confidence tiers ─────────────────────────────────────────────────────────
