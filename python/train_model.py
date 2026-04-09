@@ -360,9 +360,9 @@ def main():
     print(f"  Average Accuracy:    {avg_accuracy:.3f} (target > 0.680)")
 
     if avg_accuracy >= 0.65:
-        print("  ✅ Model meets minimum accuracy target")
+        print("  [OK] Model meets minimum accuracy target")
     else:
-        print("  ⚠️  Model below target — may need more training data")
+        print("  [!!] Model below target -- may need more training data")
 
     # 3. Train final model
     model, scaler, calibrator = train_final_model(df_train)
