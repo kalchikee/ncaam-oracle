@@ -178,5 +178,6 @@ export function predict(features: FeatureVector, mcWinProb: number): number {
 
   const rawProb   = sigmoid(logit);
   const calibrated = isotonicCalibrate(rawProb, calibX, calibY);
-  return Math.max(0.01, Math.min(0.99, calibrated));
+  // Cap at 85%: no single game is more predictable than this
+  return Math.max(0.15, Math.min(0.85, calibrated));
 }
