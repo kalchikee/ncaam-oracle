@@ -28,18 +28,18 @@ DATA_DIR  = Path("data")
 MODEL_DIR.mkdir(exist_ok=True)
 
 # Feature names — must match TypeScript FeatureVector keys
+# Dead features (always zero, no data source) have been removed:
+#   adj_tempo_diff, recruiting_composite_diff, returning_minutes_diff,
+#   transfer_portal_impact_diff, experience_diff, two_pt_pct_diff,
+#   block_pct_diff, steal_pct_diff, team_recent_em_diff, b2b_flag,
+#   injury_impact_diff, vegas_home_prob, mc_win_pct
 FEATURE_NAMES = [
     "elo_diff",
     "adj_em_diff",
     "adj_oe_diff",
     "adj_de_diff",
-    "adj_tempo_diff",
     "pythagorean_diff",
     "barthag_diff",
-    "recruiting_composite_diff",
-    "returning_minutes_diff",
-    "transfer_portal_impact_diff",
-    "experience_diff",
     "sos_diff",
     "efg_pct_diff",
     "efg_allowed_diff",
@@ -48,18 +48,12 @@ FEATURE_NAMES = [
     "oreb_pct_diff",
     "ft_rate_diff",
     "three_pt_pct_diff",
-    "two_pt_pct_diff",
-    "block_pct_diff",
-    "steal_pct_diff",
-    "team_recent_em_diff",
+    "three_pt_rate_diff",
+    "form_5g_diff",
     "rest_days_diff",
-    "b2b_flag",
     "is_home",
-    "is_neutral_site",
-    "home_court_advantage",
-    "injury_impact_diff",
-    "vegas_home_prob",
-    "mc_win_pct",       # Monte Carlo estimate included as a feature
+    "is_neutral",
+    "home_court_factor",
 ]
 
 def blending_weight(games_played: int, is_tournament: bool = False) -> float:
@@ -130,13 +124,8 @@ def create_synthetic_training_data(n_samples: int = 15000) -> pd.DataFrame:
         "adj_em_diff": adj_em_diff,
         "adj_oe_diff": adj_em_diff / 2 + rng.normal(0, 5, n_samples),
         "adj_de_diff": -adj_em_diff / 2 + rng.normal(0, 5, n_samples),
-        "adj_tempo_diff": rng.normal(0, 3, n_samples),
         "pythagorean_diff": adj_em_diff / 30 + rng.normal(0, 0.08, n_samples),
         "barthag_diff": adj_em_diff / 60 + rng.normal(0, 0.05, n_samples),
-        "recruiting_composite_diff": rng.normal(0, 0.2, n_samples),
-        "returning_minutes_diff": rng.normal(0, 0.1, n_samples),
-        "transfer_portal_impact_diff": rng.normal(0, 1.0, n_samples),
-        "experience_diff": rng.normal(0, 0.5, n_samples),
         "sos_diff": rng.normal(0, 2, n_samples),
         "efg_pct_diff": adj_em_diff / 200 + rng.normal(0, 0.04, n_samples),
         "efg_allowed_diff": rng.normal(0, 0.03, n_samples),
@@ -145,22 +134,13 @@ def create_synthetic_training_data(n_samples: int = 15000) -> pd.DataFrame:
         "oreb_pct_diff": rng.normal(0, 4, n_samples),
         "ft_rate_diff": rng.normal(0, 4, n_samples),
         "three_pt_pct_diff": rng.normal(0, 3, n_samples),
-        "two_pt_pct_diff": rng.normal(0, 3, n_samples),
-        "block_pct_diff": rng.normal(0, 1.5, n_samples),
-        "steal_pct_diff": rng.normal(0, 1.5, n_samples),
-        "team_recent_em_diff": adj_em_diff + rng.normal(0, 5, n_samples),
+        "three_pt_rate_diff": rng.normal(0, 0.1, n_samples),
+        "form_5g_diff": rng.normal(0, 0.2, n_samples),
         "rest_days_diff": rng.choice([-1, 0, 1, 2], n_samples, p=[0.1, 0.5, 0.3, 0.1]),
-        "b2b_flag": rng.binomial(1, 0.08, n_samples).astype(float),
         "is_home": np.ones(n_samples),
-        "is_neutral_site": np.zeros(n_samples),
-        "home_court_advantage": rng.normal(3.5, 0.8, n_samples),
-        "injury_impact_diff": rng.normal(0, 0.5, n_samples),
-        "vegas_home_prob": np.clip(true_win_prob + rng.normal(0, 0.02, n_samples), 0.1, 0.9),
+        "is_neutral": np.zeros(n_samples),
+        "home_court_factor": rng.normal(3.5, 0.8, n_samples),
     })
-
-    # Add mc_win_pct
-    df["mc_win_pct"] = [mc_win_prob_estimate(row["adj_em_diff"], row["elo_diff"])
-                        for _, row in df.iterrows()]
 
     print(f"Synthetic data: {home_win.mean():.3f} home win rate, {len(df)} games")
     return df
