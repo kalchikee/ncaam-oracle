@@ -93,8 +93,17 @@ ENVIRONMENT (.env):
 
 async function runDailyAlert(date: string, demo = false): Promise<void> {
   const { sendDailyPredictions } = await import('./alerts/discord.js');
+  const { writePredictionsFile } = await import('./kalshi/predictionsFile.js');
+  const { getPredictionsByDate } = await import('./db/database.js');
   await initDb();
   await runPipeline({ date, verbose: false, demo });
+  try {
+    const preds = getPredictionsByDate(date);
+    const path = writePredictionsFile(date, preds);
+    logger.info({ path, count: preds.length }, 'Wrote kalshi-safety predictions JSON');
+  } catch (err) {
+    logger.warn({ err }, 'Failed to write predictions JSON (continuing)');
+  }
   const ok = await sendDailyPredictions(date);
   logger.info({ ok, date }, 'Daily alert sent');
 }
