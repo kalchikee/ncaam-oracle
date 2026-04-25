@@ -89,15 +89,47 @@ export function loadModel(): boolean {
     const featureNames = scaler.feature_names;
     const n = featureNames.length;
 
+    // Coefficients can be stored either as a name-keyed dict (legacy) or
+    // as a positional array under `coefficients` (new). Detect both.
+    const coeffsAny = coeffs as unknown as Record<string, unknown>;
+    const isNewFormat =
+      Array.isArray(coeffsAny['coefficients']) &&
+      typeof coeffsAny['intercept'] === 'number';
+
     const coeffArr = new Float64Array(n);
-    for (let i = 0; i < n; i++) {
-      coeffArr[i] = coeffs[featureNames[i]] ?? 0;
+    let intercept = 0;
+    if (isNewFormat) {
+      const arr = coeffsAny['coefficients'] as number[];
+      const len = Math.min(n, arr.length);
+      for (let i = 0; i < len; i++) coeffArr[i] = arr[i] ?? 0;
+      intercept = coeffsAny['intercept'] as number;
+      if (arr.length !== n) {
+        logger.warn(
+          { coeffArrLen: arr.length, scalerLen: n },
+          'Coefficient array length differs from scaler feature count — possible drift',
+        );
+      }
+    } else {
+      for (let i = 0; i < n; i++) {
+        coeffArr[i] = coeffs[featureNames[i]] ?? 0;
+      }
+      intercept = coeffs['_intercept'] ?? coeffs['intercept'] ?? 0;
+    }
+
+    // Sanity check — silent zero-fill is exactly the MLS bug class.
+    let nonZero = 0;
+    for (let i = 0; i < n; i++) if (coeffArr[i] !== 0) nonZero++;
+    if (nonZero === 0) {
+      logger.error(
+        { format: isNewFormat ? 'array' : 'name-keyed', n },
+        'NCAAM ML model loaded but ALL coefficients are zero — JSON shape likely mismatched. Predictions will be silently broken.',
+      );
     }
 
     _model = {
       featureNames,
       coefficients: coeffArr,
-      intercept: coeffs['_intercept'] ?? 0,
+      intercept,
       scalerMean: new Float64Array(scaler.mean),
       scalerScale: new Float64Array(scaler.scale),
       calibX: new Float64Array(calib.x_thresholds),
@@ -106,7 +138,7 @@ export function loadModel(): boolean {
     };
 
     logger.info(
-      { version: meta.version, features: n, avgBrier: meta.avg_brier, seasons: meta.train_seasons },
+      { version: meta.version, features: n, nonZero, avgBrier: meta.avg_brier, seasons: meta.train_seasons },
       'NCAAM ML meta-model loaded'
     );
     return true;
@@ -144,12 +176,46 @@ function isotonicCalibrate(rawProb: number, calibX: Float64Array, calibY: Float6
 }
 
 // ─── Build feature array ──────────────────────────────────────────────────────
+//
+// Python trainer's feature names diverged from the TS FeatureVector field
+// names — the loader was returning `?? 0` for 4 features and silently
+// skewing the model. Map the trainer's names to the TS field names so the
+// values actually flow through. If a feature has no TS counterpart, log a
+// warning the first time it's missed.
+
+const TRAINER_TO_TS_FIELD: Record<string, string | null> = {
+  is_neutral: 'is_neutral_site',
+  home_court_factor: 'home_court_advantage',
+  // The trainer's `three_pt_rate_diff` and `form_5g_diff` have no TS
+  // counterpart yet — passing 0 is the closest we can get without retraining.
+  three_pt_rate_diff: null,
+  form_5g_diff: null,
+};
+
+const _missingFeaturesWarned = new Set<string>();
 
 function buildFeatureArray(features: FeatureVector, featureNames: string[]): Float64Array {
   const arr = new Float64Array(featureNames.length);
   const fv = features as unknown as Record<string, number>;
   for (let i = 0; i < featureNames.length; i++) {
-    arr[i] = fv[featureNames[i]] ?? 0;
+    const trainerName = featureNames[i];
+    const tsName = trainerName in TRAINER_TO_TS_FIELD
+      ? TRAINER_TO_TS_FIELD[trainerName]
+      : trainerName;
+    if (tsName === null) {
+      arr[i] = 0;
+      if (!_missingFeaturesWarned.has(trainerName)) {
+        _missingFeaturesWarned.add(trainerName);
+        logger.warn({ trainerName }, 'Feature exists in trainer but has no TS counterpart — defaulting to 0');
+      }
+      continue;
+    }
+    const v = fv[tsName];
+    if (v === undefined && !_missingFeaturesWarned.has(trainerName)) {
+      _missingFeaturesWarned.add(trainerName);
+      logger.warn({ trainerName, tsName }, 'Feature lookup missed in TS FeatureVector — defaulting to 0');
+    }
+    arr[i] = v ?? 0;
   }
   return arr;
 }
