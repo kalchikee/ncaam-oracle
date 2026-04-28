@@ -95,10 +95,32 @@ async function runDailyAlert(date: string, demo = false): Promise<void> {
   const { sendDailyPredictions } = await import('./alerts/discord.js');
   const { writePredictionsFile } = await import('./kalshi/predictionsFile.js');
   const { getPredictionsByDate } = await import('./db/database.js');
+  const { fetchSchedule } = await import('./api/cbbClient.js');
   await initDb();
+
+  // Pre-flight: if no games are scheduled today, skip Discord entirely.
+  // This guards against the daily workflow firing during the offseason or on
+  // empty schedule days (e.g. the day after the championship).
+  if (!demo) {
+    try {
+      const games = await fetchSchedule(date);
+      const playable = games.filter(g => g.status === 'Scheduled' || g.status === 'Live' || g.status === 'Final');
+      if (playable.length === 0) {
+        logger.info({ date }, 'no games today — skipping Discord');
+        return;
+      }
+    } catch (err) {
+      logger.warn({ err, date }, 'Schedule pre-flight failed — continuing');
+    }
+  }
+
   await runPipeline({ date, verbose: false, demo });
   try {
     const preds = getPredictionsByDate(date);
+    if (preds.length === 0) {
+      logger.info({ date }, 'no predictions to send — skipping Discord');
+      return;
+    }
     const path = writePredictionsFile(date, preds);
     logger.info({ path, count: preds.length }, 'Wrote kalshi-safety predictions JSON');
   } catch (err) {

@@ -240,14 +240,9 @@ export async function sendEveningRecap(date: string): Promise<boolean> {
   const record  = getSeasonRecord(season);
 
   if (predictions.length === 0) {
-    return sendWebhook({
-      embeds: [{
-        title: `🌙 NCAAM Oracle — Recap for ${date}`,
-        description: 'No predictions found for this date.',
-        color: COLORS.recap_neutral,
-        timestamp: new Date().toISOString(),
-      }],
-    });
+    // No predictions to recap — stay silent. The user doesn't want empty pings.
+    logger.info({ date }, 'no predictions to recap — skipping Discord');
+    return false;
   }
 
   // Only show games we actually predicted (high-conviction + strong)
@@ -374,10 +369,20 @@ export async function sendWeeklyRecap(weekStart: string): Promise<boolean> {
   const record  = getSeasonRecord(season);
   const weeklyRecords = getWeeklyRecords(season, 8);
 
-  const thisWeek = weeklyRecords[weeklyRecords.length - 1];
+  // Match the recap window precisely instead of just grabbing the last record.
+  // This week's record may not exist (offseason / empty week).
+  const thisWeek = weeklyRecords.find(w => w.weekStart === weekStart);
   const weekCorrect = thisWeek?.correct ?? 0;
   const weekTotal   = thisWeek?.total ?? 0;
   const weekAccuracy = weekTotal > 0 ? weekCorrect / weekTotal : 0;
+
+  // Guard: if there were no graded games this week (offseason or empty week),
+  // don't post an empty recap embed. The user explicitly doesn't want daily
+  // pings during dormant periods.
+  if (weekTotal === 0) {
+    logger.info({ weekStart }, 'no completed games this week — skipping Discord');
+    return false;
+  }
 
   const color = weekAccuracy >= 0.68 ? COLORS.weekly_good
                : weekAccuracy >= 0.55 ? COLORS.weekly_neutral
