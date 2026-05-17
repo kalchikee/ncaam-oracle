@@ -154,6 +154,18 @@ export async function sendDailyPredictions(date: string): Promise<boolean> {
 
   const fields: DiscordField[] = [];
 
+  // ── Season hit-rate ─────────────────────────────────────────────────────
+  // Pulled from the same getSeasonRecord() source the evening recap uses,
+  // so morning + evening agree on the number. Only shown when the season
+  // has graded predictions (off-season → record.total === 0 → hidden).
+  if (record.total > 0) {
+    fields.push({
+      name: '📊 Season Accuracy',
+      value: `**${pct(record.correct / record.total)}** · ${record.correct}/${record.total} predictions correct this season`,
+      inline: false,
+    });
+  }
+
   // Season record inline fields
   const seasonPct = record.total > 0 ? (record.correct / record.total * 100).toFixed(1) + '%' : 'N/A';
   const hcPct     = record.highConvTotal > 0 ? (record.highConvCorrect / record.highConvTotal * 100).toFixed(1) + '%' : 'N/A';
