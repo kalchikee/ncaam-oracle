@@ -14,6 +14,7 @@ import {
   getSeasonRecord,
   getWeeklyRecords,
   getTournamentSims,
+  getConfidenceBuckets,
 } from '../db/database.js';
 import { getConfidenceTier, confidenceEmoji } from '../features/marketEdge.js';
 import { getCurrentSeason } from '../season-manager/index.js';
@@ -164,6 +165,22 @@ export async function sendDailyPredictions(date: string): Promise<boolean> {
       value: `**${pct(record.correct / record.total)}** · ${record.correct}/${record.total} predictions correct this season`,
       inline: false,
     });
+
+    // Per-confidence-bucket calibration: shows how the model's declared
+    // probability tracks reality at each tier (e.g. of picks tagged
+    // 70-80%, how many actually won). Empty buckets are filtered out
+    // server-side so the embed stays compact early-season.
+    const buckets = getConfidenceBuckets(season);
+    if (buckets.length > 0) {
+      const lines = buckets.map(b =>
+        `**${b.label}** · ${b.correct}/${b.total} (${pct(b.accuracy)})`
+      );
+      fields.push({
+        name: '🎯 Calibration by confidence',
+        value: lines.join('\n'),
+        inline: false,
+      });
+    }
   }
 
   // Season record inline fields
